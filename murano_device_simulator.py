@@ -43,11 +43,11 @@ except ImportError:
     PYTHON = 3
 
 # -----------------------------------------------------------------
-# EXOSITE PRODUCT ID / SERIAL NUMBER IDENTIFIER / CONFIGURATION
+# EXOSITE PRODUCT ID / DEVICE IDENTITY / CONFIGURATION
 # -----------------------------------------------------------------
 UNSET_PRODUCT_ID = 'YOUR_PRODUCT_ID_HERE'
 productid = os.getenv('SIMULATOR_PRODUCT_ID', UNSET_PRODUCT_ID)
-identifier = os.getenv('SIMULATOR_DEVICE_ID', '000001')  # default identifier
+identity = os.getenv('SIMULATOR_DEVICE_ID', '000001')  # default identity
 
 SHOW_HTTP_REQUESTS = False
 PROMPT_FOR_PRODUCTID_AND_SN = os.getenv('SIMULATOR_SHOULD_PROMPT', '1') == '1'
@@ -116,7 +116,7 @@ def ACTIVATE():
     try:
         # print("attempt to activate on Murano")
 
-        http_body = 'vendor=' + productid + '&model=' + productid + '&sn=' + identifier
+        http_body = 'vendor=' + productid + '&model=' + productid + '&sn=' + identity
         # BUILD HTTP PACKET
         http_packet = ""
         http_packet += 'POST /provision/activate HTTP/1.1\r\n'
@@ -138,7 +138,7 @@ def ACTIVATE():
             print("Activation Response: Device Aleady Activated, there is no new CIK")
         elif response.status == 404:
             print("Activation Response: Device Identity ({}) activation not available or check Product Id ({})".format(
-                identifier,
+                identity,
                 productid
                 ))
         else:
@@ -154,7 +154,7 @@ def ACTIVATE():
 def GET_STORED_CIK():
     print("get stored CIK from non-volatile memory")
     try:
-        f = open(productid + "_" + identifier + "_cik", "r+")  # opens file to store CIK
+        f = open(productid + "_" + identity + "_cik", "r+")  # opens file to store CIK
         local_cik = f.read()
         f.close()
         print("Stored cik: {} ..............................".format(local_cik[0:10]))
@@ -166,7 +166,7 @@ def GET_STORED_CIK():
 
 def STORE_CIK(cik_to_store):
     print("storing new CIK to non-volatile memory")
-    f = open(productid + "_" + identifier + "_cik", "w")  # opens file that stores CIK
+    f = open(productid + "_" + identity + "_cik", "w")  # opens file that stores CIK
     f.write(cik_to_store)
     f.close()
     return True
@@ -319,10 +319,10 @@ if PROMPT_FOR_PRODUCTID_AND_SN is True or productid == UNSET_PRODUCT_ID:
     # if hostok != "":
     # 	host_address = hostok
 
-    print("The default Device Identity is: {}".format(identifier))
+    print("The default Device Identity is: {}".format(identity))
     identityok = input("If OK, hit return, if you prefer a different Identity, type it here: ")
     if identityok != "":
-        identifier = identityok
+        identity = identityok
 else:
     host_address = productid + '.' + host_address_base
 
@@ -330,7 +330,7 @@ start_time = int(time.time())
 print("\r\n-----")
 print("Murano Example Smart Lightbulb Device Simulator booting...")
 print("Product Id: {}".format(productid))
-print("Device Identity: {}".format(identifier))
+print("Device Identity: {}".format(identity))
 print("Product Unique Host: {}".format(host_address))
 print("-----")
 cik = GET_STORED_CIK()
