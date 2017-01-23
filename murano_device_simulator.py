@@ -112,7 +112,7 @@ def ACTIVATE():
         if SHOW_RAW_HTTP:
             pretty_print_request(request)
 
-        s = requests.Session()
+        # send with global session
         response = s.send(request)
 
         if SHOW_RAW_HTTP:
@@ -174,7 +174,7 @@ def WRITE(WRITE_PARAMS):
     if SHOW_RAW_HTTP:
         pretty_print_request(request)
 
-    s = requests.Session()
+    # send with global session
     response = s.send(request)
 
     if SHOW_RAW_HTTP:
@@ -220,7 +220,7 @@ def READ(READ_PARAMS):
         if SHOW_RAW_HTTP:
             pretty_print_request(request)
 
-        s = requests.Session()
+        # send with global session
         response = s.send(request)
 
         if SHOW_RAW_HTTP:
@@ -269,7 +269,7 @@ def LONG_POLL_WAIT(READ_PARAMS):
         if SHOW_RAW_HTTP:
             pretty_print_request(request)
 
-        s = requests.Session()
+        # send with global session
         response = s.send(request)
 
         if SHOW_RAW_HTTP:
@@ -350,6 +350,12 @@ if cik is None:
         FLAG_CHECK_ACTIVATION = False
     else:
         FLAG_CHECK_ACTIVATION = True
+
+
+
+# global requests network session
+s = requests.Session()
+s.cert = ('./certs/clcert.pem', './certs/clpkey.pem')
 
 # --------------------------
 # MAIN LOOP
