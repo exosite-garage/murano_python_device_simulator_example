@@ -27,20 +27,13 @@ import time
 import datetime
 import random
 
-import socket
-import ssl
+import requests
 
 
 try:
-    from StringIO import StringIO
-    import httplib
     input = raw_input
-    PYTHON = 2
 except ImportError:
-    from http import client as httplib
-    from io import StringIO, BytesIO
-
-    PYTHON = 3
+    pass
 
 # -----------------------------------------------------------------
 # EXOSITE PRODUCT ID / SERIAL NUMBER IDENTIFIER / CONFIGURATION
@@ -49,7 +42,7 @@ UNSET_PRODUCT_ID = 'YOUR_PRODUCT_ID_HERE'
 productid = os.getenv('SIMULATOR_PRODUCT_ID', UNSET_PRODUCT_ID)
 identifier = os.getenv('SIMULATOR_DEVICE_ID', '000001')  # default identifier
 
-SHOW_HTTP_REQUESTS = False
+SHOW_RAW_HTTP = str(os.getenv('SHOW_RAW_HTTP')).lower() == "true"
 PROMPT_FOR_PRODUCTID_AND_SN = os.getenv('SIMULATOR_SHOULD_PROMPT', '1') == '1'
 LONG_POLL_REQUEST_TIMEOUT = 2 * 1000  # in milliseconds
 
@@ -58,20 +51,9 @@ LONG_POLL_REQUEST_TIMEOUT = 2 * 1000  # in milliseconds
 # -----------------------------------------------------------------
 
 host_address_base = os.getenv('SIMULATOR_HOST', 'm2.exosite.com')
+host_address_base = os.getenv('SIMULATOR_HOST', 'm2.exosite.com')
 host_address = None  # set this later when we know the product ID
 https_port = 443
-
-
-class FakeSocket:
-    def __init__(self, response_str):
-        if PYTHON == 2:
-            self._file = StringIO(response_str)
-        else:
-            self._file = BytesIO(response_str)
-
-    def makefile(self, *args, **kwargs):
-        return self._file
-
 
 # LOCAL DATA VARIABLES
 FLAG_CHECK_ACTIVATION = False
@@ -85,54 +67,61 @@ last_modified = {}
 
 
 #
+# HELPER FUNCTIONS
+#
+
+def pretty_print_request(req):
+    print('{}\n{}\n{}\n\n{}\n{}'.format(
+        '-----------RAW REQUEST------------',
+        req.method + ' ' + req.url,
+        '\n'.join('{}: {}'.format(k, v) for k, v in req.headers.items()),
+        req.body if req.body != None else '',
+        '----------------------------------',
+    ))
+
+def pretty_print_respone(rsp):
+    print('{}\n{}\n{}\n\n{}\n{}'.format(
+        '-----------RAW RESPONSE-----------',
+        'HTTP/1.1 ' + str(rsp.status_code) + ' ' + rsp.reason,
+        '\n'.join('{}: {}'.format(k, v) for k, v in rsp.headers.items()),
+        rsp.text if rsp.text != None else '',
+        '----------------------------------',
+    ))
+
+
+#
 # DEVICE MURANO RELATED FUNCTIONS
 #
 
-def SOCKET_SEND(http_packet):
-    # SEND REQUEST
-    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    ssl_s = ssl.wrap_socket(s)
-    ssl_s.connect((host_address, https_port))
-    if SHOW_HTTP_REQUESTS:
-        print("--- Sending ---\r\n {} \r\n----".format(http_packet))
-    if PYTHON == 2:
-        ssl_s.send(http_packet)
-    else:
-        ssl_s.send(bytes(http_packet, 'UTF-8'))
-    # GET RESPONSE
-    response = ssl_s.recv(1024)
-    ssl_s.close()
-    if SHOW_HTTP_REQUESTS:
-        print("--- Response --- \r\n {} \r\n---")
-
-    # PARSE REPONSE
-    fake_socket_response = FakeSocket(response)
-    parsed_response = httplib.HTTPResponse(fake_socket_response)
-    parsed_response.begin()
-    return parsed_response
-
-
 def ACTIVATE():
     try:
-        # print("attempt to activate on Murano")
+        request = requests.Request(
+            'POST',
+            "https://" + host_address + "/provision/activate",
+            headers = {
+                "X-Exosite-CIK": cik,
+                "Content-Type": "application/x-www-form-urlencoded; charset=utf-8"
+            },
+            data = {
+                'vendor': productid,
+                'model': productid,
+                'sn': identifier,
+            }
+        ).prepare()
 
-        http_body = 'vendor=' + productid + '&model=' + productid + '&sn=' + identifier
-        # BUILD HTTP PACKET
-        http_packet = ""
-        http_packet += 'POST /provision/activate HTTP/1.1\r\n'
-        http_packet += 'Host: ' + host_address + '\r\n'
-        http_packet += 'Connection: Close \r\n'
-        http_packet += 'Content-Type: application/x-www-form-urlencoded; charset=utf-8\r\n'
-        http_packet += 'content-length:' + str(len(http_body)) + '\r\n'
-        http_packet += '\r\n'
-        http_packet += http_body
+        if SHOW_RAW_HTTP:
+            pretty_print_request(request)
 
-        response = SOCKET_SEND(http_packet)
+        s = requests.Session()
+        response = s.send(request)
+
+        if SHOW_RAW_HTTP:
+            pretty_print_respone(response)
 
         # HANDLE POSSIBLE RESPONSES
         if response.status == 200:
-            new_cik = response.read().decode("utf-8")
-            print("Activation Response: New CIK: {} ..............................".format(new_cik[0:10]))
+            new_cik = response.text
+            print("Activation Response: New CIK: {}..............................".format(new_cik[0:10]))
             return new_cik
         elif response.status == 409:
             print("Activation Response: Device Aleady Activated, there is no new CIK")
@@ -157,7 +146,7 @@ def GET_STORED_CIK():
         f = open(productid + "_" + identifier + "_cik", "r+")  # opens file to store CIK
         local_cik = f.read()
         f.close()
-        print("Stored cik: {} ..............................".format(local_cik[0:10]))
+        print("Stored cik: {}..............................".format(local_cik[0:10]))
         return local_cik
     except Exception as e:
         print("Unable to read a stored CIK: {}".format(e))
@@ -173,33 +162,35 @@ def STORE_CIK(cik_to_store):
 
 
 def WRITE(WRITE_PARAMS):
-    # print "write data to Murano"
+    request = requests.Request(
+        'POST',
+        "https://" + host_address + "/onep:v1/stack/alias",
+        headers = {
+            "X-Exosite-CIK": cik,
+            "Content-Type": "application/x-www-form-urlencoded; charset=utf-8"
+        }
+    ).prepare()
 
-    http_body = WRITE_PARAMS
-    # BUILD HTTP PACKET
-    http_packet = ""
-    http_packet += 'POST /onep:v1/stack/alias HTTP/1.1\r\n'
-    http_packet += 'Host: ' + host_address + '\r\n'
-    http_packet += 'X-EXOSITE-CIK: ' + cik + '\r\n'
-    http_packet += 'Connection: Close \r\n'
-    http_packet += 'Content-Type: application/x-www-form-urlencoded; charset=utf-8\r\n'
-    http_packet += 'content-length:' + str(len(http_body)) + '\r\n'
-    http_packet += '\r\n'
-    http_packet += http_body
+    if SHOW_RAW_HTTP:
+        pretty_print_request(request)
 
-    response = SOCKET_SEND(http_packet)
+    s = requests.Session()
+    response = s.send(request)
+
+    if SHOW_RAW_HTTP:
+        pretty_print_respone(response)
 
     # HANDLE POSSIBLE RESPONSES
-    if response.status == 204:
+    if response.status_code == 204:
         # print "write success"
         return True, 204
-    elif response.status == 401:
+    elif response.status_code == 401:
         print("401: Bad Auth, CIK may be bad")
         return False, 401
-    elif response.status == 400:
+    elif response.status_code == 400:
         print("400: Bad Request: check syntax")
         return False, 400
-    elif response.status == 405:
+    elif response.status_code == 405:
         print("405: Bad Method")
         return False, 405
     else:
@@ -207,44 +198,50 @@ def WRITE(WRITE_PARAMS):
         return False, response.status
 
     # This code is unreachable and should be removed
-    # 		except Exception as err:
+    #       except Exception as err:
     # pass
     # print("exception: {}".format(str(err)))
 
 
     # return None
 
+
 def READ(READ_PARAMS):
     try:
-        # print("read data from Murano")
+        request = requests.Request(
+            'GET',
+            "https://" + host_address + "/onep:v1/stack/alias?" + READ_PARAMS,
+            headers = {
+                "X-Exosite-CIK": cik,
+                "Accept": "application/x-www-form-urlencoded; charset=utf-8"
+            }
+        ).prepare()
 
-        # BUILD HTTP PACKET
-        http_packet = ""
-        http_packet += 'GET /onep:v1/stack/alias?' + READ_PARAMS + ' HTTP/1.1\r\n'
-        http_packet += 'Host: ' + host_address + '\r\n'
-        http_packet += 'X-EXOSITE-CIK: ' + cik + '\r\n'
-        # http_packet += 'Connection: Close \r\n'
-        http_packet += 'Accept: application/x-www-form-urlencoded; charset=utf-8\r\n'
-        http_packet += '\r\n'
+        if SHOW_RAW_HTTP:
+            pretty_print_request(request)
 
-        response = SOCKET_SEND(http_packet)
+        s = requests.Session()
+        response = s.send(request)
+
+        if SHOW_RAW_HTTP:
+            pretty_print_respone(response)
 
         # HANDLE POSSIBLE RESPONSES
-        if response.status == 200:
+        if response.status_code == 200:
             # print "read success"
-            return True, response.read().decode('utf-8')
-        elif response.status == 401:
+            return True, response.text
+        elif response.status_code == 401:
             print("401: Bad Auth, CIK may be bad")
             return False, 401
-        elif response.status == 400:
+        elif response.status_code == 400:
             print("400: Bad Request: check syntax")
             return False, 400
-        elif response.status == 405:
+        elif response.status_code == 405:
             print("405: Bad Method")
             return False, 405
         else:
-            print(str(response.status), response.reason, 'failed:')
-            return False, response.status
+            print(str(response.status_code), response.text, 'failed:')
+            return False, response.status_code
 
     except Exception as e:
         # pass
@@ -254,39 +251,49 @@ def READ(READ_PARAMS):
 
 def LONG_POLL_WAIT(READ_PARAMS):
     try:
-        # print "long poll state wait request from Murano"
-        # BUILD HTTP PACKET
-        http_packet = ""
-        http_packet += 'GET /onep:v1/stack/alias?' + READ_PARAMS + ' HTTP/1.1\r\n'
-        http_packet += 'Host: ' + host_address + '\r\n'
-        http_packet += 'Accept: application/x-www-form-urlencoded; charset=utf-8\r\n'
-        http_packet += 'X-EXOSITE-CIK: ' + cik + '\r\n'
-        http_packet += 'Request-Timeout: ' + str(LONG_POLL_REQUEST_TIMEOUT) + '\r\n'
-        if last_modified.get(READ_PARAMS) != None:
-            http_packet += 'If-Modified-Since: ' + last_modified.get(READ_PARAMS) + '\r\n'
-        http_packet += '\r\n'
+        headers = {
+            "X-Exosite-CIK": cik,
+            "Accept": "application/x-www-form-urlencoded; charset=utf-8",
+            'Request-Timeout': str(LONG_POLL_REQUEST_TIMEOUT),
+        }
 
-        response = SOCKET_SEND(http_packet)
+        if last_modified.get(READ_PARAMS) != None:
+            headers['If-Modified-Since'] = last_modified.get(READ_PARAMS)
+
+        request = requests.Request(
+            'GET',
+            "https://" + host_address + "/onep:v1/stack/alias?" + READ_PARAMS,
+            headers = headers
+        ).prepare()
+
+        if SHOW_RAW_HTTP:
+            pretty_print_request(request)
+
+        s = requests.Session()
+        response = s.send(request)
+
+        if SHOW_RAW_HTTP:
+            pretty_print_respone(response)
 
         # HANDLE POSSIBLE RESPONSES
-        if response.status == 200:
+        if response.status_code == 200:
             # print "read success"
-            if response.getheader("last-modified") != None:
+            if response.headers.get("last-modified") != None:
                 # Save Last-Modified Header (Plus 1s)
-                lm = response.getheader("last-modified")
+                lm = response.headers.get("last-modified")
                 next_lm = (datetime.datetime.strptime(lm, "%a, %d %b %Y %H:%M:%S GMT") + datetime.timedelta(seconds=1)).strftime("%a, %d %b %Y %H:%M:%S GMT")
                 last_modified[READ_PARAMS] = next_lm
-            return True, response.read()
-        elif response.status == 304:
+            return True, response.text
+        elif response.status_code == 304:
             # print "304: No Change"
             return False, 304
-        elif response.status == 401:
+        elif response.status_code == 401:
             print("401: Bad Auth, CIK may be bad")
             return False, 401
-        elif response.status == 400:
+        elif response.status_code == 400:
             print("400: Bad Request: check syntax")
             return False, 400
-        elif response.status == 405:
+        elif response.status_code == 405:
             print("405: Bad Method")
             return False, 405
         else:
@@ -317,7 +324,7 @@ if PROMPT_FOR_PRODUCTID_AND_SN is True or productid == UNSET_PRODUCT_ID:
     print("The Host Address is: {}".format(host_address))
     # hostok = input("If OK, hit return, if you prefer a different host address, type it here: ")
     # if hostok != "":
-    # 	host_address = hostok
+    #   host_address = hostok
 
     print("The default Device Identity is: {}".format(identifier))
     identityok = input("If OK, hit return, if you prefer a different Identity, type it here: ")
@@ -369,64 +376,69 @@ if status:
     else:
         print("Light Bulb is Off")
 
-while LOOP:
-    uptime = int(time.time()) - start_time
-    last_request = time.time()
+try:
+    while LOOP:
+        uptime = int(time.time()) - start_time
+        last_request = time.time()
 
-    connection = 'Connected'
-    if FLAG_CHECK_ACTIVATION:
-        connection = "Not Connected"
+        connection = 'Connected'
+        if FLAG_CHECK_ACTIVATION:
+            connection = "Not Connected"
 
-    output_string = (
-        "Connection: {0:s}, Run Time: {1:5d}, Temperature: {2:3.1f} F, Humidity: {3:3.1f} %, Light State: {4:1d}").format(connection, uptime, temperature, humidity, lightbulb_state)
-    print("{}".format(output_string))
+        output_string = (
+            "Connection: {0:s}, Run Time: {1:5d}, Temperature: {2:3.1f} F, Humidity: {3:3.1f} %, Light State: {4:1d}").format(connection, uptime, temperature, humidity, lightbulb_state)
+        print("{}".format(output_string))
 
-    if cik is not None and not FLAG_CHECK_ACTIVATION:
-        # GENERATE RANDOM TEMPERATURE VALUE
+        if cik is not None and not FLAG_CHECK_ACTIVATION:
+            # GENERATE RANDOM TEMPERATURE VALUE
 
-        temperature = round(random.uniform(temperature - 0.2, temperature + 0.2), 1)
-        if temperature > 120:
-            temperature = 120
-        if temperature < 1:
-            temperature = 1
-        # GENERATE RANDOM HUMIDITY VALUE
-        humidity = round(random.uniform(humidity - 0.2, humidity + 0.2), 1)
-        if humidity > 100:
-            humidity = 100
-        if humidity < 1:
-            humidity = 1
+            temperature = round(random.uniform(temperature - 0.2, temperature + 0.2), 1)
+            if temperature > 120:
+                temperature = 120
+            if temperature < 1:
+                temperature = 1
+            # GENERATE RANDOM HUMIDITY VALUE
+            humidity = round(random.uniform(humidity - 0.2, humidity + 0.2), 1)
+            if humidity > 100:
+                humidity = 100
+            if humidity < 1:
+                humidity = 1
 
-        status, resp = WRITE('temperature=' + str(temperature) + '&humidity=' + str(humidity) + '&uptime=' + str(uptime))
-        if not status and resp == 401:
-            FLAG_CHECK_ACTIVATION = True
+            status, resp = WRITE('temperature=' + str(temperature) + '&humidity=' + str(humidity) + '&uptime=' + str(uptime))
+            if not status and resp == 401:
+                FLAG_CHECK_ACTIVATION = True
 
-        # print("Look for on/off state change")
-        status, resp = LONG_POLL_WAIT('state')
-        if not status and resp == 401:
-            FLAG_CHECK_ACTIVATION = True
-        if not status and resp == 304:
-            # print("No New State Value")
-            pass
-        if status:
-            # print("New State Value: {}".format(str(resp)))
-            new_value = resp.split('=')
+            # print("Look for on/off state change")
+            status, resp = LONG_POLL_WAIT('state')
+            if not status and resp == 401:
+                FLAG_CHECK_ACTIVATION = True
+            if not status and resp == 304:
+                # print("No New State Value")
+                pass
+            if status:
+                # print("New State Value: {}".format(str(resp)))
+                new_value = resp.split('=')
 
-            if lightbulb_state != int(new_value[1]):
-                lightbulb_state = int(new_value[1])
-                if lightbulb_state == 1:
-                    print("Action -> Turn Light Bulb On")
-                else:
-                    print("Action -> Turn Light Bulb Off")
+                if lightbulb_state != int(new_value[1]):
+                    lightbulb_state = int(new_value[1])
+                    if lightbulb_state == 1:
+                        print("Action -> Turn Light Bulb On")
+                    else:
+                        print("Action -> Turn Light Bulb Off")
 
-    if FLAG_CHECK_ACTIVATION:
-        if (uptime % 10) == 0:
-            # print("---")
-            print("Device CIK may be expired or not available (not added to product) - trying to activate")
-        act_response = ACTIVATE()
-        if act_response is not None:
-            cik = act_response
-            STORE_CIK(cik)
-            FLAG_CHECK_ACTIVATION = False
-        else:
-            # print("Wait 10 seconds and attempt to activate again")
-            time.sleep(1)
+        if FLAG_CHECK_ACTIVATION:
+            if (uptime % 10) == 0:
+                # print("---")
+                print("Device CIK may be expired or not available (not added to product) - trying to activate")
+            act_response = ACTIVATE()
+            if act_response is not None:
+                cik = act_response
+                STORE_CIK(cik)
+                FLAG_CHECK_ACTIVATION = False
+            else:
+                # print("Wait 10 seconds and attempt to activate again")
+                time.sleep(1)
+
+# Catch 'Ctrl+C' to not print stack trace
+except KeyboardInterrupt:
+    pass
