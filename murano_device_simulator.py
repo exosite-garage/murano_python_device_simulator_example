@@ -2,8 +2,8 @@
 # -*- coding: utf-8 -*-
 #
 # Murano Python Simple Device Simulator
-# Copyright 2016 Exosite
-# Version 1.0
+# Copyright 2017 Exosite
+# Version 2.0
 #
 # This python script simulates a Smart Light bulb by generating simlulated
 # sensor data and taking action on a remote state variable to control on/off.
