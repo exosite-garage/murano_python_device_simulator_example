@@ -57,7 +57,7 @@ LONG_POLL_REQUEST_TIMEOUT = 2 * 1000  # in milliseconds
 # ---- SHOULD NOT NEED TO CHANGE ANYTHING BELOW THIS LINE ------
 # -----------------------------------------------------------------
 
-host_address_base = os.getenv('SIMULATOR_HOST', 'm2.exosite.com')
+host_address_base = os.getenv('SIMULATOR_HOST', 'm2.exosite.io')
 host_address = None  # set this later when we know the product ID
 https_port = 443
 
@@ -89,9 +89,14 @@ last_modified = {}
 #
 
 def SOCKET_SEND(http_packet):
+    context = ssl.SSLContext(ssl.PROTOCOL_TLSv1)
+    context.verify_mode = ssl.CERT_REQUIRED
+    context.check_hostname = True
+    context.load_default_certs()
+
     # SEND REQUEST
     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    ssl_s = ssl.wrap_socket(s)
+    ssl_s = context.wrap_socket(s, server_hostname = host_address)
     ssl_s.connect((host_address, https_port))
     if SHOW_HTTP_REQUESTS:
         print("--- Sending ---\r\n {} \r\n----".format(http_packet))
@@ -207,7 +212,7 @@ def WRITE(WRITE_PARAMS):
         return False, response.status
 
     # This code is unreachable and should be removed
-    # 		except Exception as err:
+    #       except Exception as err:
     # pass
     # print("exception: {}".format(str(err)))
 
@@ -271,12 +276,14 @@ def LONG_POLL_WAIT(READ_PARAMS):
         # HANDLE POSSIBLE RESPONSES
         if response.status == 200:
             # print "read success"
+            alias_value = response.read()
+            status, resp = WRITE(alias_value)
             if response.getheader("last-modified") != None:
                 # Save Last-Modified Header (Plus 1s)
                 lm = response.getheader("last-modified")
                 next_lm = (datetime.datetime.strptime(lm, "%a, %d %b %Y %H:%M:%S GMT") + datetime.timedelta(seconds=1)).strftime("%a, %d %b %Y %H:%M:%S GMT")
                 last_modified[READ_PARAMS] = next_lm
-            return True, response.read()
+            return True, alias_value
         elif response.status == 304:
             # print "304: No Change"
             return False, 304
@@ -317,7 +324,7 @@ if PROMPT_FOR_PRODUCTID_AND_SN is True or productid == UNSET_PRODUCT_ID:
     print("The Host Address is: {}".format(host_address))
     # hostok = input("If OK, hit return, if you prefer a different host address, type it here: ")
     # if hostok != "":
-    # 	host_address = hostok
+    #   host_address = hostok
 
     print("The default Device Identity is: {}".format(identifier))
     identityok = input("If OK, hit return, if you prefer a different Identity, type it here: ")
@@ -353,6 +360,9 @@ counter = 100  # for debug purposes so you don't have issues killing this proces
 LOOP = True
 lightbulb_state = 0
 init = 1
+
+# Set default value for state, 0 (off)
+status, resp = WRITE('state=0')
 
 # Check current system expected state
 status, resp = READ('state')
