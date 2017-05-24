@@ -348,6 +348,8 @@ if cik is None:
         cik = act_response
         STORE_CIK(cik)
         FLAG_CHECK_ACTIVATION = False
+        # Set default starting value for state, Off
+        status, resp = WRITE('state=Off')
     else:
         FLAG_CHECK_ACTIVATION = True
 
@@ -358,11 +360,8 @@ print("starting main loop")
 
 counter = 100  # for debug purposes so you don't have issues killing this process
 LOOP = True
-lightbulb_state = 0
+lightbulb_state = "Off"
 init = 1
-
-# Set default value for state, 0 (off)
-status, resp = WRITE('state=0')
 
 # Check current system expected state
 status, resp = READ('state')
@@ -373,8 +372,8 @@ if not status and resp == 304:
     pass
 if status:
     new_value = resp.split('=')
-    lightbulb_state = int(new_value[1])
-    if lightbulb_state == 1:
+    lightbulb_state = new_value[1]
+    if lightbulb_state == "On":
         print("Light Bulb is On")
     else:
         print("Light Bulb is Off")
@@ -388,7 +387,7 @@ while LOOP:
         connection = "Not Connected"
 
     output_string = (
-        "Connection: {0:s}, Run Time: {1:5d}, Temperature: {2:3.1f} F, Humidity: {3:3.1f} %, Light State: {4:1d}").format(connection, uptime, temperature, humidity, lightbulb_state)
+        "Connection: {0:s}, Run Time: {1:5d}, Temperature: {2:3.1f} F, Humidity: {3:3.1f} %, Light State: " + lightbulb_state).format(connection, uptime, temperature, humidity)
     print("{}".format(output_string))
 
     if cik is not None and not FLAG_CHECK_ACTIVATION:
@@ -421,9 +420,9 @@ while LOOP:
             # print("New State Value: {}".format(str(resp)))
             new_value = resp.split('=')
 
-            if lightbulb_state != int(new_value[1]):
-                lightbulb_state = int(new_value[1])
-                if lightbulb_state == 1:
+            if lightbulb_state != new_value[1]:
+                lightbulb_state = new_value[1]
+                if lightbulb_state == "On":
                     print("Action -> Turn Light Bulb On")
                 else:
                     print("Action -> Turn Light Bulb Off")
