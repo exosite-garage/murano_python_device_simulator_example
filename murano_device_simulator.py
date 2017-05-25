@@ -348,7 +348,7 @@ if cik is None:
         cik = act_response
         STORE_CIK(cik)
         FLAG_CHECK_ACTIVATION = False
-        # Set default starting value for state, Off
+        # Report default starting value for state, Off
         status, resp = WRITE('state=Off')
     else:
         FLAG_CHECK_ACTIVATION = True
@@ -371,6 +371,8 @@ if not status and resp == 304:
     # print("No New State Value")
     pass
 if status:
+    # Report updated value for state
+    WRITE(resp)
     new_value = resp.split('=')
     lightbulb_state = new_value[1]
     if lightbulb_state == "On":
