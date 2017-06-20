@@ -23,6 +23,7 @@
 #
 
 import os
+import sys
 import time
 import datetime
 import random
@@ -314,6 +315,16 @@ def LONG_POLL_WAIT(READ_PARAMS):
 # --------------------------
 # BOOT
 # --------------------------
+
+# Verify interpreter version is adequate
+req_version = (2,7,11)
+cur_version = sys.version_info
+if cur_version < req_version:
+    print("# =-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-= #")
+    print("#        This application must be run using Python 2.7.9 or greater.        #")
+    print("#  You can find the latest releases here: https://www.python.org/downloads/ #")
+    print("# =-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-= #")
+    exit()
 
 # Check if CIK locally stored already
 if PROMPT_FOR_PRODUCTID_AND_SN is True or productid == UNSET_PRODUCT_ID:
