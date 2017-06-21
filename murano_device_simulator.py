@@ -317,7 +317,7 @@ def LONG_POLL_WAIT(READ_PARAMS):
 # --------------------------
 
 # Verify interpreter version is adequate
-req_version = (2,7,11)
+req_version = (2,7,9)
 cur_version = sys.version_info
 if cur_version < req_version:
     print("# =-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-= #")
