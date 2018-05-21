@@ -50,7 +50,7 @@ UNSET_PRODUCT_ID = 'YOUR_PRODUCT_ID_HERE'
 productid = os.getenv('SIMULATOR_PRODUCT_ID', UNSET_PRODUCT_ID)
 identifier = os.getenv('SIMULATOR_DEVICE_ID', '000001')  # default identifier
 
-SHOW_HTTP_REQUESTS = True
+SHOW_HTTP_REQUESTS = False
 PROMPT_FOR_PRODUCTID_AND_SN = os.getenv('SIMULATOR_SHOULD_PROMPT', '1') == '1'
 LONG_POLL_REQUEST_TIMEOUT = 2 * 1000  # in milliseconds
 
