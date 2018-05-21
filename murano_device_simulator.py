@@ -13,7 +13,7 @@
 # For more information see: http://beta-docs.exosite.com/murano/get-started
 #
 # Requires:
-# - Tested with: Python 2.6 or Python 2.7
+# - Tested with: Python 2.7.9+
 # - A basic knowledge of running Python scripts
 #
 # To run:
@@ -28,8 +28,8 @@ import time
 import datetime
 import random
 
-import socket
-import ssl
+import requests
+import json
 
 
 try:
@@ -50,7 +50,7 @@ UNSET_PRODUCT_ID = 'YOUR_PRODUCT_ID_HERE'
 productid = os.getenv('SIMULATOR_PRODUCT_ID', UNSET_PRODUCT_ID)
 identifier = os.getenv('SIMULATOR_DEVICE_ID', '000001')  # default identifier
 
-SHOW_HTTP_REQUESTS = False
+SHOW_HTTP_REQUESTS = True
 PROMPT_FOR_PRODUCTID_AND_SN = os.getenv('SIMULATOR_SHOULD_PROMPT', '1') == '1'
 LONG_POLL_REQUEST_TIMEOUT = 2 * 1000  # in milliseconds
 
@@ -61,18 +61,6 @@ LONG_POLL_REQUEST_TIMEOUT = 2 * 1000  # in milliseconds
 host_address_base = os.getenv('SIMULATOR_HOST', 'm2.exosite.io')
 host_address = None  # set this later when we know the product ID
 https_port = 443
-
-
-class FakeSocket:
-    def __init__(self, response_str):
-        if PYTHON == 2:
-            self._file = StringIO(response_str)
-        else:
-            self._file = BytesIO(response_str)
-
-    def makefile(self, *args, **kwargs):
-        return self._file
-
 
 # LOCAL DATA VARIABLES
 FLAG_CHECK_ACTIVATION = False
@@ -122,33 +110,29 @@ def ACTIVATE():
     try:
         # print("attempt to activate on Murano")
 
-        http_body = 'vendor=' + productid + '&model=' + productid + '&sn=' + identifier
-        # BUILD HTTP PACKET
-        http_packet = ""
-        http_packet += 'POST /provision/activate HTTP/1.1\r\n'
-        http_packet += 'Host: ' + host_address + '\r\n'
-        http_packet += 'Connection: Close \r\n'
-        http_packet += 'Content-Type: application/x-www-form-urlencoded; charset=utf-8\r\n'
-        http_packet += 'content-length:' + str(len(http_body)) + '\r\n'
-        http_packet += '\r\n'
-        http_packet += http_body
+        url = host_address + '/provision/activate'
+        headers = {'Content-Type':'application/x-www-form-urlencoded; charset=utf-8'}
+        payload = 'id=' + identifier
 
-        response = SOCKET_SEND(http_packet)
+        response = requests.post(url, data=payload, headers=headers)
+        print(response.status_code)
+        print(response.text)
+
 
         # HANDLE POSSIBLE RESPONSES
-        if response.status == 200:
-            new_cik = response.read().decode("utf-8")
+        if response.status_code == 200:
+            new_cik = response.text
             print("Activation Response: New CIK: {} ..............................".format(new_cik[0:10]))
             return new_cik
-        elif response.status == 409:
+        elif response.status_code == 409:
             print("Activation Response: Device Aleady Activated, there is no new CIK")
-        elif response.status == 404:
+        elif response.status_code == 404:
             print("Activation Response: Device Identity ({}) activation not available or check Product Id ({})".format(
                 identifier,
                 productid
                 ))
         else:
-            print("Activation Response: failed request: {} {}".format(str(response.status), response.reason))
+            print("Activation Response: failed request: {} {}".format(str(response.status_code), response.text))
             return None
 
     except Exception as e:
@@ -181,36 +165,28 @@ def STORE_CIK(cik_to_store):
 def WRITE(WRITE_PARAMS):
     # print "write data to Murano"
 
-    http_body = WRITE_PARAMS
-    # BUILD HTTP PACKET
-    http_packet = ""
-    http_packet += 'POST /onep:v1/stack/alias HTTP/1.1\r\n'
-    http_packet += 'Host: ' + host_address + '\r\n'
-    http_packet += 'X-EXOSITE-CIK: ' + cik + '\r\n'
-    http_packet += 'Connection: Close \r\n'
-    http_packet += 'Content-Type: application/x-www-form-urlencoded; charset=utf-8\r\n'
-    http_packet += 'content-length:' + str(len(http_body)) + '\r\n'
-    http_packet += '\r\n'
-    http_packet += http_body
+    url = host_address + '/onep:v1/stack/alias'
+    headers = {'Content-Type':'application/x-www-form-urlencoded; charset=utf-8', 'X-EXOSITE-CIK': cik}
+    payload = WRITE_PARAMS
 
-    response = SOCKET_SEND(http_packet)
+    response = requests.post(url, data=payload, headers=headers)
 
     # HANDLE POSSIBLE RESPONSES
-    if response.status == 204:
+    if response.status_code == 204:
         # print "write success"
         return True, 204
-    elif response.status == 401:
+    elif response.status_code == 401:
         print("401: Bad Auth, CIK may be bad")
         return False, 401
-    elif response.status == 400:
+    elif response.status_code == 400:
         print("400: Bad Request: check syntax")
         return False, 400
-    elif response.status == 405:
+    elif response.status_code == 405:
         print("405: Bad Method")
         return False, 405
     else:
-        print(str(response.status), response.reason, 'failed:')
-        return False, response.status
+        print(str(response.status_code), response.text, 'failed:')
+        return False, response.status_code
 
     # This code is unreachable and should be removed
     #       except Exception as err:
@@ -224,33 +200,27 @@ def READ(READ_PARAMS):
     try:
         # print("read data from Murano")
 
-        # BUILD HTTP PACKET
-        http_packet = ""
-        http_packet += 'GET /onep:v1/stack/alias?' + READ_PARAMS + ' HTTP/1.1\r\n'
-        http_packet += 'Host: ' + host_address + '\r\n'
-        http_packet += 'X-EXOSITE-CIK: ' + cik + '\r\n'
-        # http_packet += 'Connection: Close \r\n'
-        http_packet += 'Accept: application/x-www-form-urlencoded; charset=utf-8\r\n'
-        http_packet += '\r\n'
+        url = host_address + '/onep:v1/stack/alias?' + READ_PARAMS
+        headers = {'Accept':'application/x-www-form-urlencoded; charset=utf-8', 'X-EXOSITE-CIK': cik}
 
-        response = SOCKET_SEND(http_packet)
+        response = requests.get(url, headers=headers)
 
         # HANDLE POSSIBLE RESPONSES
-        if response.status == 200:
+        if response.status_code == 200:
             # print "read success"
-            return True, response.read().decode('utf-8')
-        elif response.status == 401:
+            return True, response.text
+        elif response.status_code == 401:
             print("401: Bad Auth, CIK may be bad")
             return False, 401
-        elif response.status == 400:
+        elif response.status_code == 400:
             print("400: Bad Request: check syntax")
             return False, 400
-        elif response.status == 405:
+        elif response.status_code == 405:
             print("405: Bad Method")
             return False, 405
         else:
-            print(str(response.status), response.reason, 'failed:')
-            return False, response.status
+            print(str(response.status_code), response.text, 'failed:')
+            return False, response.status_code
 
     except Exception as e:
         # pass
@@ -262,44 +232,41 @@ def LONG_POLL_WAIT(READ_PARAMS):
     try:
         # print "long poll state wait request from Murano"
         # BUILD HTTP PACKET
-        http_packet = ""
-        http_packet += 'GET /onep:v1/stack/alias?' + READ_PARAMS + ' HTTP/1.1\r\n'
-        http_packet += 'Host: ' + host_address + '\r\n'
-        http_packet += 'Accept: application/x-www-form-urlencoded; charset=utf-8\r\n'
-        http_packet += 'X-EXOSITE-CIK: ' + cik + '\r\n'
-        http_packet += 'Request-Timeout: ' + str(LONG_POLL_REQUEST_TIMEOUT) + '\r\n'
-        if last_modified.get(READ_PARAMS) != None:
-            http_packet += 'If-Modified-Since: ' + last_modified.get(READ_PARAMS) + '\r\n'
-        http_packet += '\r\n'
 
-        response = SOCKET_SEND(http_packet)
+        url = host_address + '/onep:v1/stack/alias?' + READ_PARAMS
+        headers = {'Accept':'application/x-www-form-urlencoded; charset=utf-8', 'Request-Timeout': str(LONG_POLL_REQUEST_TIMEOUT), 'X-EXOSITE-CIK': cik}
+
+        if last_modified.get(READ_PARAMS) != None:
+            headers["If-Modified-Since"] = last_modified.get(READ_PARAMS)
+
+        response = requests.get(url, headers=headers)
 
         # HANDLE POSSIBLE RESPONSES
-        if response.status == 200:
+        if response.status_code == 200:
             # print "read success"
-            alias_value = response.read()
+            alias_value = response.text
             status, resp = WRITE(alias_value)
-            if response.getheader("last-modified") != None:
+            if response.headers.get('last-modified', None) != None:
                 # Save Last-Modified Header (Plus 1s)
-                lm = response.getheader("last-modified")
+                lm = response.headers.get('last-modified', '')
                 next_lm = (datetime.datetime.strptime(lm, "%a, %d %b %Y %H:%M:%S GMT") + datetime.timedelta(seconds=1)).strftime("%a, %d %b %Y %H:%M:%S GMT")
                 last_modified[READ_PARAMS] = next_lm
             return True, alias_value
-        elif response.status == 304:
+        elif response.status_code == 304:
             # print "304: No Change"
             return False, 304
-        elif response.status == 401:
+        elif response.status_code == 401:
             print("401: Bad Auth, CIK may be bad")
             return False, 401
-        elif response.status == 400:
+        elif response.status_code == 400:
             print("400: Bad Request: check syntax")
             return False, 400
-        elif response.status == 405:
+        elif response.status_code == 405:
             print("405: Bad Method")
             return False, 405
         else:
-            print(str(response.status), response.reason)
-            return False, response.status
+            print(str(response.status_code), response.text)
+            return False, response.status_code
 
     except Exception as e:
         pass
@@ -330,7 +297,7 @@ if cur_version < req_version:
 if PROMPT_FOR_PRODUCTID_AND_SN is True or productid == UNSET_PRODUCT_ID:
     print("Check for Device Parameters Enabled (hit return after each question)")
     productid = input("Enter the Murano Product ID: ")
-    host_address = productid + '.' + host_address_base
+    host_address = 'https://' + productid + '.' + host_address_base
 
     print("The Host Address is: {}".format(host_address))
     # hostok = input("If OK, hit return, if you prefer a different host address, type it here: ")
@@ -342,7 +309,7 @@ if PROMPT_FOR_PRODUCTID_AND_SN is True or productid == UNSET_PRODUCT_ID:
     if identityok != "":
         identifier = identityok
 else:
-    host_address = productid + '.' + host_address_base
+    host_address = 'https://' + productid + '.' + host_address_base
 
 start_time = int(time.time())
 print("\r\n-----")
@@ -447,6 +414,7 @@ while LOOP:
         act_response = ACTIVATE()
         if act_response is not None:
             cik = act_response
+            print(cik)
             STORE_CIK(cik)
             FLAG_CHECK_ACTIVATION = False
         else:
