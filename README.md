@@ -37,7 +37,7 @@ If successful, the script will ask you to enter your Product ID.
 
   If the Python Simulator is running correctly, the script should show the device has been activated and whether the lightbulb is on or off.
   
-5. On The Murano IoT-Connector page you should see [the device beeing activated and receiving data](http://docs.exosite.com/connectivity/quickstart/#activated-device)
+5. On The Murano IoT-Connector page you should see [the device beeing activated and receiving data](http://docs.exosite.com/connectivity/quickstart/#monitor-device)
 
 6. Use [the Murano device dashboard page](http://docs.exosite.com/connectivity/quickstart/#dashboard) to create charts
 
